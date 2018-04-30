@@ -11,6 +11,7 @@
 // * total number of bytes used by text files (accumulate sizes)
 
 #include <iostream>
+#include <fstream>
 #include <vector>
 using namespace std;
 #include <sys/time.h>
@@ -138,8 +139,9 @@ bool checkIsText(const char *fname, long *totalBytes) {
 void waitForOpenThread(int numThreads) {
 	bool first = true;
 	while(threadCount >= numThreads) {
+		// spin
 		if(first) {
-			printf("Waiting for open thread...\n");
+			// printf("Waiting for open thread...\n");
 			first = false;
 		}
 	}
@@ -148,9 +150,8 @@ void waitForOpenThread(int numThreads) {
 void tryJoins(vector<pthread_t> &threads) {
 	for (vector<pthread_t>::iterator i = threads.begin(); i != threads.end(); ++i) {	
 		if(pthread_tryjoin_np(*i, NULL) == EBUSY) {
-			printf("Left %d alone, thread count is: %d\n", *i, threadCount);
+			continue;
 		} else {
-			printf("wait_joined %d\n", *i);
 			threads.erase(i);
 			i--;
 		}
@@ -177,16 +178,18 @@ void *readFromIn(void *f) {
 	struct stat fileInfo;
 
 	readFname(fileName);
-	printf("Starting read for %s\n", fileName);
 
 	if(stat(fileName, &fileInfo)){
 		printf("Stat failed for %s\n", fileName);
 
 	} else if(S_ISREG(fileInfo.st_mode)){
+		// up all the regular info numbers
 		incrNumReg();
 		incrRegBytes(fileInfo.st_size);
+
 		isText = checkIsText(fileName, &totalBytes);
 		if(isText) {
+			// up all the text file info numbers
 			incrNumText();
 			incrNumTextBytes(totalBytes);
 		} else {
@@ -199,9 +202,7 @@ void *readFromIn(void *f) {
 		incrNumSpec();
 	}	
 
-	// close(tempfd);
 	decrThreadCount();
-	// printf("Ended successfully\n");
 	return 0;
 }
 
@@ -214,8 +215,6 @@ void runThreads(int numThreads) {
 		if(strcmp(file.c_str(), "exit") == 0) 
     		break;
 
-    	printf("Thread count: %i\n", threadCount);
-
     	waitForOpenThread(numThreads);
 
     	tryJoins(threads);
@@ -223,16 +222,14 @@ void runThreads(int numThreads) {
 
     	pthread_t thrd;
        	if(pthread_create(&thrd, NULL, readFromIn, 0) == 0) {
-       		printf("Opening thread %d for file named %s\n", thrd, file.c_str());
        		threads.push_back(thrd);
        		incrThreadCount();
        	} else {
-       		printf("Didn't create a thread\n");
+       		printf("Couldn't create a thread for file %s\n", file.c_str());
        	}    	
     }
 
     for (vector<pthread_t>::iterator i = threads.begin(); i != threads.end(); ++i) {
-    	printf("Joining thread %d\n", *i);
     	pthread_join(*i, NULL);
     }
 }
@@ -242,15 +239,20 @@ int main(int argc, char *argv[]) {
     bool doThreads = false;
     threadCount = 0;
     string file;
+    char *outFile;
 
-    struct rusage start, end;
+    struct rusage end;
     struct timeval startTime, endTime, wallStart, wallEnd;
 
     if(argc == 1) {
     	printf("No threads specified, running serial version\n");
+    	outFile = "timeSheet.csv";
+
     } else if(argc == 2) {
     	if(strcmp(argv[1], "thread") == 0)
     		doThreads = true;
+    	outFile = "timeSheet.csv";
+
     } else if(argc == 3) {
     	if(strcmp(argv[1], "thread") == 0){
     		doThreads = true;
@@ -258,12 +260,25 @@ int main(int argc, char *argv[]) {
     		numThreads = numThreads > MAX_THREADS ? MAX_THREADS : numThreads;
     		printf("Running threaded version with %d threads\n", numThreads);
     	}    	
+    	outFile = "timeSheet.csv";
+
+    } else if(argc == 4) {
+    	if(strcmp(argv[1], "thread") == 0){
+    		doThreads = true;
+    		numThreads = atoi(argv[2]);
+    		numThreads = numThreads > MAX_THREADS ? MAX_THREADS : numThreads;
+    		printf("Running threaded version with %d threads\n", numThreads);
+    	} 
+
+    	outFile = argv[3];
 
     } else {
     	printf("Too many arguments\n");
     }
 
-    int result = getrusage(RUSAGE_SELF, &start);
+    printf("Printing timing data to %s\n", outFile);
+    numThreads = numThreads == 0 ? 1 : numThreads;
+
     gettimeofday(&wallStart, NULL);
 
     initSemsValues();
@@ -277,30 +292,53 @@ int main(int argc, char *argv[]) {
 	    while(getline(cin, file)) {
 	    	if(strcmp(file.c_str(), "exit") == 0) 
 	    		break;
-	    	char *copy = new char[file.size()];
+	    	
 	    	setFname(&file);
 	    	readFromIn(0);
-	    	// delete copy;
+	    	
 	    }
 	}
 
+	//and thats all for the meat and potatoes. Now we print everything all pretty-like
+
 	gettimeofday(&wallEnd, NULL);
-
 	int res = getrusage(RUSAGE_SELF, &end);
-	startTime = start.ru_utime;
-	endTime = end.ru_utime;
-	long userTime = (endTime.tv_sec - startTime.tv_sec) * 1000 + ((endTime.tv_usec - startTime.tv_usec) /1000);
 
-	startTime = start.ru_stime;
-	endTime = end.ru_stime;
-	long sysTime = (endTime.tv_sec - startTime.tv_sec) * 1000 + ((endTime.tv_usec - startTime.tv_usec) /1000);
-
-	long wallTime = (wallEnd.tv_sec - wallStart.tv_sec) * 1000 + ((wallEnd.tv_usec - wallStart.tv_usec)/1000);
-
-
-    printf("Bad Files: %d\nDirectories: %d\nRegular Files: %d\nSpecial Files: %d\nText Files %d\n", numBadFiles, numDir, numReg, numSpec, numText);
+	printf("Bad Files: %d\nDirectories: %d\nRegular Files: %d\nSpecial Files: %d\nText Files %d\n", numBadFiles, numDir, numReg, numSpec, numText);
     printf("Regular File Bytes: %ld\nText File Bytes: %ld\n", numRegBytes, numTextBytes);
+	
 
-    printf("\nWall Time: %ld\nUser Time: %ld\nSystem Time: %ld\n", wallTime, userTime, sysTime);
+	endTime = end.ru_utime;
+	
+	long userTime = (endTime.tv_sec * 1000000 + endTime.tv_usec) /1000;
 
+
+	long wallTime = ((wallEnd.tv_sec - wallStart.tv_sec) * 1000000 + (wallEnd.tv_usec - wallStart.tv_usec))/1000;
+
+
+    
+
+    cout << "\nUser Seconds: " << endTime.tv_sec << "." << endTime.tv_usec << endl;
+
+    endTime = end.ru_stime;	
+	long sysTime = (endTime.tv_sec * 1000000 + endTime.tv_usec) /1000;
+
+	cout << "System Seconds: " << endTime.tv_sec << "." << endTime.tv_usec << endl;
+	cout << "Wall Clock Seconds: " << (wallEnd.tv_sec - wallStart.tv_sec) << "." << (wallEnd.tv_usec - wallStart.tv_usec) << endl;
+	
+    std::ofstream timeSheet;
+    string firstline = "";
+    std::ifstream infile(outFile);
+    if(!infile.good())
+    	firstline = "NumberOfThreads,Wall Time,User Time,System Time,Number Bad Files,Number Directories,Number Regular Files,Number Special Files,Number Text Files,Regular Bytes,Text Bytes\n";
+    infile.close();
+
+    timeSheet.open(outFile, std::ios_base::app);
+    numThreads = doThreads ? numThreads : 0; // if we didn't use threads, set numThreads to 0
+
+    // if this is the first time we make a timeSheet,
+    // it will add the headers row, otherwise firstline is empty
+    timeSheet << firstline; 
+    timeSheet << numThreads << "," << wallTime << "," << userTime << "," << sysTime << "," << numBadFiles << "," << numDir << "," << numReg << "," << numSpec << "," << numText << "," << numRegBytes << "," << numTextBytes << endl;
+    timeSheet.close();
 }
