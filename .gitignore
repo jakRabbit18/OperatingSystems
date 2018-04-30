@@ -4,6 +4,6 @@ project4/testFiles/FederalistPapers.txt
 project4/testFiles/dummyDir
 project4/testFiles/timeSheet.xlsm
 project4/Report/*
-*.DS_Store
+*/.DS_Store
 .DS_Store
 
