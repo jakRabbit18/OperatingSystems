@@ -73,8 +73,6 @@ int main(int argc, char **argv) {
 		//dummy message to fill a mailbox
 		struct msg m = {0,0,0,0};
 		mailboxes.push_back(m);
-
-		cout << "Box number: " << i;
 		MAILFLAG *mflag = new MAILFLAG;
 
 		sem_init(&(mflag->send), 0, 1);
@@ -87,9 +85,7 @@ int main(int argc, char **argv) {
 
 		int check;
 		sem_getvalue(&(mflag->send), &check);
-		cout << "\tSend: " << check;
 		sem_getvalue(&(mflag->recieve), &check);
-		cout << "\tRecieve: " << check << endl;
 	}
 
 	 // next, start up the threads
@@ -100,8 +96,8 @@ int main(int argc, char **argv) {
 				printf("pthread_create");
 				exit(1);
 			}
-			printf("Making thread #%d \n", it->boxID);
 		}
+		cout << "Starting thread #" << it->boxID << endl;
 	}
 
 	//this is thread 0, make it the main thread
@@ -153,34 +149,40 @@ int recieveMessage(int boxNum, struct msg *message) {
 void *mainThread(void *args) {
 	int k, count = 0, mVal = 0, toThread = 0, numThreads = *(int*) args;
 	while (scanf("%d", &k) == 1) {
+		// any innput that takes no 
+		if(k <= 0) {
+			break;
+		}
+
 		if(count++ % 2) {
 			toThread = k;
 			struct msg m = {0, mVal, -1,-1};
+
 			if(toThread <= numThreads) {
 				int result = NBSendMessage(toThread, m);
 				if(result == -1) {
 					struct unsentMsg um = {m, toThread};
 					unsent.push_back(um);
-					cout << "Couldn't send message to " << toThread << endl;
 				}
 			} 
 			else {
-				printf("No such thread: %d\n", toThread + 1);
+				printf("No such thread: %d\n", toThread);
 			}
 		} else {
 			mVal = k;
 		}
 	}
-	cout << "Total unsent messages: " <<  unsent.size() << endl;
+	cout << "Total messages to re-send: " <<  unsent.size() << "\nResending..." << endl;
 
 	while (!unsent.empty()) {
 		//always send the front of the list first
 		struct unsentMsg um = unsent.back();
 
 		sendMessage(um.toThread, um.message);
-
 		unsent.pop_back();
 	}
+
+	cout << "All messages resent" << endl;
 
 	for (std::vector<MAILFLAG>::iterator i = mflags.begin() + 1; i != mflags.end(); ++i) {
 		struct msg terminate;
